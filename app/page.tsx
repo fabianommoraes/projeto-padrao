@@ -1,5 +1,27 @@
 "use client";
 
+import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
+  AppBar,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Chip,
+  CssBaseline,
+  Paper,
+  Stack,
+  Tab,
+  Tabs,
+  TextField,
+  ThemeProvider,
+  Toolbar,
+  Typography,
+  createTheme,
+} from "@mui/material";
+import { green } from "@mui/material/colors";
 import { useEffect, useState } from "react";
 
 type Exercise = [string, number, number, number];
@@ -16,7 +38,7 @@ type LogEntry = {
 
 const PLAN: PlanDay[] = [
   {
-    n: "Superior A",
+    n: "Treino A",
     d: "Segunda",
     e: [
       ["Supino reto na máquina", 3, 6, 10],
@@ -29,7 +51,7 @@ const PLAN: PlanDay[] = [
     ],
   },
   {
-    n: "Inferior A",
+    n: "Treino B",
     d: "Terça",
     e: [
       ["Leg press 90°", 4, 8, 12],
@@ -41,7 +63,7 @@ const PLAN: PlanDay[] = [
     ],
   },
   {
-    n: "Superior B",
+    n: "Treino C",
     d: "Quarta",
     e: [
       ["Remada cavalinho", 4, 8, 10],
@@ -52,7 +74,7 @@ const PLAN: PlanDay[] = [
     ],
   },
   {
-    n: "Inferior B",
+    n: "Treino D",
     d: "Quinta",
     e: [
       ["Stiff / terra romeno", 3, 8, 10],
@@ -93,6 +115,26 @@ const getSuggestion = (targetSets: number, base: number, reps: number[]) => {
 const STORAGE_KEY = "meu-treino-state-v1";
 const hoje = () => new Date().toLocaleDateString("pt-BR");
 
+const appTheme = createTheme({
+  palette: {
+    primary: {
+      main: green[700],
+      light: green[100],
+      dark: green[900],
+      contrastText: "#fff",
+    },
+    secondary: {
+      main: green[500],
+    },
+    success: {
+      main: green[600],
+    },
+  },
+  typography: {
+    fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif',
+  },
+});
+
 export default function Home() {
   const [tab, setTab] = useState(0);
   const [day, setDay] = useState(0);
@@ -106,17 +148,31 @@ export default function Home() {
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !("serviceWorker" in navigator)) {
+    if (
+      typeof window === "undefined" ||
+      process.env.NODE_ENV !== "production" ||
+      !("serviceWorker" in navigator)
+    ) {
       return;
     }
 
     const registerServiceWorker = async () => {
       try {
-        const registration = await navigator.serviceWorker.register("/sw.js");
+        const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+
+        await registration.update();
 
         if (registration.waiting) {
           registration.waiting.postMessage({ type: "SKIP_WAITING" });
         }
+
+        const applyUpdate = () => {
+          if (!registration.waiting) {
+            return;
+          }
+
+          registration.waiting.postMessage({ type: "SKIP_WAITING" });
+        };
 
         navigator.serviceWorker.addEventListener("controllerchange", () => {
           window.location.reload();
@@ -128,9 +184,18 @@ export default function Home() {
 
           installing.addEventListener("statechange", () => {
             if (installing.state === "installed" && navigator.serviceWorker.controller) {
+              applyUpdate();
               window.location.reload();
             }
           });
+        });
+
+        document.addEventListener("visibilitychange", () => {
+          if (!document.hidden) {
+            registration.update().catch((error) => {
+              console.error("Service worker update failed:", error);
+            });
+          }
         });
       } catch (error) {
         console.error("Service worker registration failed:", error);
@@ -279,154 +344,188 @@ export default function Home() {
   };
 
   const renderTreino = () => (
-    <>
-      <h1>{currentPlan.n}</h1>
-      <div className="chips">
-        {PLAN.map((plan, index) => (
-          <button
-            type="button"
-            key={plan.n}
-            className={`chip ${index === day ? "on" : ""}`}
-            onClick={() => {
-              setDay(index);
-              setOpenExercise("");
-            }}
-          >
-            {plan.d.slice(0, 3)}
-            <small>{plan.n}</small>
-          </button>
-        ))}
-      </div>
+    <Stack spacing={2}>
+      <Typography variant="h5">{currentPlan.n}</Typography>
 
-      <div className="wk">
-        <span>
-          Semana <b>{week}</b>
-        </span>
-        <span className="mut">
-          RIR alvo <b style={{ color: "var(--tx)" }}>{CICLO[week - 1]?.[1] ?? "-"}</b>
-        </span>
-      </div>
+      <Paper variant="outlined" sx={{ overflow: "hidden" }}>
+        <Tabs
+          value={day}
+          onChange={(_, nextDay) => {
+            setDay(nextDay);
+            setOpenExercise("");
+          }}
+          variant="fullWidth"
+          textColor="primary"
+          indicatorColor="primary"
+          sx={{
+            width: "100%",
+            minWidth: 0,
+            ".MuiTabs-flexContainer": {
+              width: "100%",
+            },
+            ".MuiTab-root": {
+              flex: 1,
+              minWidth: 0,
+            },
+          }}
+        >
+          {PLAN.map((plan) => (
+            <Tab key={plan.n} label={plan.n.replace("Treino ", "")} />
+          ))}
+        </Tabs>
+      </Paper>
 
-      {currentPlan.e.map(([name, sets, min, max], index) => {
-        const exerciseKey = `${currentPlan.n}|${index + 1}`;
-        const lastLog = logs[exerciseKey]?.[logs[exerciseKey].length - 1];
-        const currentInput = exerciseInputs[exerciseKey] ?? {
-          load: lastLog ? String(lastLog.l) : "",
-          reps: Array.from({ length: sets }, () => ""),
-        };
-        const repValues = currentInput.reps.map((value) => Number(value)).filter((value) => !Number.isNaN(value));
-        const suggestion = getSuggestion(sets, max, repValues);
-        const message = saveMessages[exerciseKey] ?? suggestion.text;
+      <Paper variant="outlined">
+        <Stack direction="row" sx={{ justifyContent: "space-between" }}>
+          <Box>
+            <Typography variant="caption" color="text.secondary">
+              Semana
+            </Typography>
+            <Typography variant="h6">{week}</Typography>
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary">
+              RIR alvo
+            </Typography>
+            <Typography variant="h6">{CICLO[week - 1]?.[1] ?? "-"}</Typography>
+          </Box>
+        </Stack>
+      </Paper>
 
-        return (
-          <details key={exerciseKey} open={openExercise === exerciseKey}>
-            <summary
-              onClick={(event) => {
-                event.preventDefault();
-                setOpenExercise((current) => (current === exerciseKey ? "" : exerciseKey));
-              }}
+      <Stack spacing={1.5}>
+        {currentPlan.e.map(([name, sets, min, max], index) => {
+          const exerciseKey = `${currentPlan.n}|${index + 1}`;
+          const lastLog = logs[exerciseKey]?.[logs[exerciseKey].length - 1];
+          const currentInput = exerciseInputs[exerciseKey] ?? {
+            load: lastLog ? String(lastLog.l) : "",
+            reps: Array.from({ length: sets }, () => ""),
+          };
+          const repValues = currentInput.reps.map((value) => Number(value)).filter((value) => !Number.isNaN(value));
+          const suggestion = getSuggestion(sets, max, repValues);
+          const message = saveMessages[exerciseKey] ?? suggestion.text;
+
+          return (
+            <Accordion
+              key={exerciseKey}
+              expanded={openExercise === exerciseKey}
+              onChange={() => setOpenExercise((current) => (current === exerciseKey ? "" : exerciseKey))}
+              disableGutters
             >
-              <b>
-                {index + 1}. {name}
-              </b>
-              <span>
-                {sets}×{min}-{max}
-              </span>
-              {lastLog ? (
-                <em>
-                  Último: {lastLog.d} · {lastLog.l} kg × {lastLog.r.join("/")}
-                </em>
-              ) : (
-                <em>Sem registro ainda</em>
-              )}
-            </summary>
+              <AccordionSummary>
+                <Stack direction="row" spacing={1} sx={{ width: "100%", justifyContent: "space-between", alignItems: "center" }}>
+                  <Box>
+                    <Typography variant="subtitle1">
+                      {index + 1}. {name}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {sets} séries · {min}-{max} reps
+                    </Typography>
+                  </Box>
+                  <Chip
+                    label={lastLog ? `${lastLog.l} kg` : "kg"}
+                    size="small"
+                    color="primary"
+                    variant="outlined"
+                    sx={{ minWidth: 72, justifyContent: "center" }}
+                  />
+                </Stack>
+              </AccordionSummary>
 
-            <div className="body">
-              <label>
-                Carga (kg)
-                <input
-                  className="ld"
-                  type="number"
-                  inputMode="decimal"
-                  step="0.5"
-                  min="0"
-                  value={currentInput.load}
-                  onChange={(event) => updateLoad(exerciseKey, event.target.value)}
-                />
-              </label>
+              <AccordionDetails>
+                <Stack spacing={1.5}>
+                  <TextField
+                    label="Carga (kg)"
+                    type="number"
+                    value={currentInput.load}
+                    onChange={(event) => updateLoad(exerciseKey, event.target.value)}
+                    slotProps={{ htmlInput: { inputMode: "decimal", min: 0, step: 0.5 } }}
+                    size="small"
+                  />
 
-              <div className="reps">
-                {Array.from({ length: sets }, (_, repIndex) => (
-                  <label key={`${exerciseKey}-${repIndex}`}>
-                    Série {repIndex + 1}
-                    <input
-                      className="rp"
-                      type="number"
-                      inputMode="numeric"
-                      min="0"
-                      placeholder={String(max)}
-                      value={currentInput.reps[repIndex] ?? ""}
-                      onChange={(event) => updateRep(exerciseKey, repIndex, event.target.value)}
-                    />
-                  </label>
-                ))}
-              </div>
+                  <Box
+                    sx={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                      gap: 1,
+                    }}
+                  >
+                    {Array.from({ length: sets }, (_, repIndex) => (
+                      <TextField
+                        key={`${exerciseKey}-${repIndex}`}
+                        label={`Série ${repIndex + 1}`}
+                        type="number"
+                        value={currentInput.reps[repIndex] ?? ""}
+                        onChange={(event) => updateRep(exerciseKey, repIndex, event.target.value)}
+                        slotProps={{ htmlInput: { inputMode: "numeric", min: 0, placeholder: String(max) } }}
+                        size="small"
+                      />
+                    ))}
+                  </Box>
 
-              {message ? (
-                <p className={`sug ${suggestion.tone || ""}`}>{message}</p>
-              ) : null}
+                  {message ? (
+                    <Paper variant="outlined">
+                      <Typography variant="body2">{message}</Typography>
+                    </Paper>
+                  ) : null}
 
-              <button
-                type="button"
-                className="save"
-                onClick={() => handleSave(exerciseKey, sets, max)}
-              >
-                Salvar registro
-              </button>
-            </div>
-          </details>
-        );
-      })}
+                  <Button variant="contained" onClick={() => handleSave(exerciseKey, sets, max)}>
+                    Salvar registro
+                  </Button>
+                </Stack>
+              </AccordionDetails>
+            </Accordion>
+          );
+        })}
+      </Stack>
 
-      <p className="mut">Seus registros ficam salvos neste aparelho.</p>
-    </>
+      <Typography variant="body2" color="text.secondary">
+        Seus registros ficam salvos neste aparelho.
+      </Typography>
+    </Stack>
   );
 
   const renderCiclo = () => (
-    <>
-      <h1>Ciclo de 8 semanas</h1>
-      <p className="mut">
-        Toque numa semana para marcá-la como a atual. RIR é quantas repetições ainda sobrariam no
-        fim da série.
-      </p>
-      {CICLO.map(([text, rir], index) => (
-        <button
-          type="button"
-          key={text}
-          className={`card wkc ${index + 1 === week ? "on" : ""}`}
-          onClick={() => setWeek(index + 1)}
-        >
-          <i>{index + 1}</i>
-          <span>{text}</span>
-          <u>RIR {rir}</u>
-        </button>
-      ))}
+    <Stack spacing={2}>
+      <Box>
+        <Typography variant="caption" color="text.secondary">
+          Progresso
+        </Typography>
+        <Typography variant="h5">Ciclo de 8 semanas</Typography>
+      </Box>
 
-      <h2>Como subir a carga</h2>
-      <div className="card">
-        <p>
-          Mantenha a carga e busque mais repetições. Quando completar o topo da faixa em todas as
-          séries, com boa técnica, suba a carga (2-5% nos braços e ombros, 5-10% nas pernas) e volte
-          ao piso da faixa.
-        </p>
-        <p className="mut">Descanse 2-3 min nos compostos e 1-2 min nos isoladores.</p>
-      </div>
-    </>
+      <Typography variant="body2" color="text.secondary">
+        Toque numa semana para marcá-la como a atual. RIR é quantas repetições ainda sobrariam no fim da série.
+      </Typography>
+
+      <Stack spacing={1.25}>
+        {CICLO.map(([text, rir], index) => (
+          <Paper key={text} variant={index + 1 === week ? "elevation" : "outlined"} onClick={() => setWeek(index + 1)}>
+            <Stack direction="row" spacing={1} sx={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+              <Stack direction="row" spacing={1}>
+                <Typography variant="subtitle2">{index + 1}</Typography>
+                <Typography variant="body2">{text}</Typography>
+              </Stack>
+              <Typography variant="caption">RIR {rir}</Typography>
+            </Stack>
+          </Paper>
+        ))}
+      </Stack>
+
+      <Card variant="outlined">
+        <CardContent>
+          <Typography variant="h6">Como subir a carga</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Mantenha a carga e busque mais repetições. Quando completar o topo da faixa em todas as séries, com boa técnica, suba a carga (2-5% nos braços e ombros, 5-10% nas pernas) e volte ao piso da faixa.
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Descanse 2-3 min nos compostos e 1-2 min nos isoladores.
+          </Typography>
+        </CardContent>
+      </Card>
+    </Stack>
   );
 
   const renderProgresso = () => {
-    let totalExercicios = 0;
-
     const cards = PLAN.flatMap((plan) =>
       plan.e.map((exercise, index) => {
         const key = `${plan.n}|${index + 1}`;
@@ -436,66 +535,97 @@ export default function Home() {
           return null;
         }
 
-        totalExercicios += 1;
         const initial = entries[0].l;
         const current = entries[entries.length - 1].l;
         const max = Math.max(...entries.map((entry) => entry.l));
         const variation = current - initial;
 
         return (
-          <div className="card" key={key}>
-            <b>{exercise[0]}</b>
-            <div className="mut">
+          <Paper key={key} variant="outlined">
+            <Typography variant="subtitle1">{exercise[0]}</Typography>
+            <Typography variant="caption" color="text.secondary">
               {plan.n} · {entries.length} registro{entries.length > 1 ? "s" : ""}
-            </div>
-            <div className="pg">
-              <div>
-                <small>Inicial</small>
-                <b>{initial}</b>
-              </div>
-              <div>
-                <small>Atual</small>
-                <b>{current}</b>
-              </div>
-              <div>
-                <small>Máxima</small>
-                <b>{max}</b>
-              </div>
-            </div>
-            <p className="mut">
-              Variação: <span className={variation > 0 ? "pos" : ""}>{variation > 0 ? "+" : ""}{variation} kg</span>
-            </p>
-          </div>
+            </Typography>
+
+            <Stack direction="row" spacing={2} sx={{ flexWrap: "wrap" }}>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Inicial</Typography>
+                <Typography variant="subtitle2">{initial}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Atual</Typography>
+                <Typography variant="subtitle2">{current}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Máxima</Typography>
+                <Typography variant="subtitle2">{max}</Typography>
+              </Box>
+            </Stack>
+
+            <Typography variant="body2">
+              Variação: <span>{variation > 0 ? "+" : ""}{variation} kg</span>
+            </Typography>
+          </Paper>
         );
       })
     );
 
     return (
-      <>
-        <h1>Progresso</h1>
-        {cards.length > 0 ? cards : <p>Nenhum registro ainda. Abra a aba Treino, escolha um exercício e salve a carga e as repetições.</p>}
-      </>
+      <Stack spacing={2}>
+        <Box>
+          <Typography variant="caption" color="text.secondary">
+            Evolução
+          </Typography>
+          <Typography variant="h5">Progresso</Typography>
+        </Box>
+
+        {cards.length > 0 ? (
+          <Stack spacing={1.5}>{cards}</Stack>
+        ) : (
+          <Paper variant="outlined">
+            <Typography variant="body2" color="text.secondary">
+              Nenhum registro ainda. Abra a aba Treino, escolha um exercício e salve a carga e as repetições.
+            </Typography>
+          </Paper>
+        )}
+      </Stack>
     );
   };
 
   return (
-    <>
-      <main id="app" className="app-shell">
-        {tab === 0 ? renderTreino() : tab === 1 ? renderCiclo() : renderProgresso()}
-      </main>
+    <ThemeProvider theme={appTheme}>
+      <CssBaseline />
+      <AppBar position="sticky" color="primary" elevation={1}>
+        <Toolbar sx={{ justifyContent: "flex-start" }}>
+          <Typography variant="h6">Meu treino</Typography>
+        </Toolbar>
+      </AppBar>
 
-      <nav>
-        <button type="button" className={tab === 0 ? "on" : ""} onClick={() => setTab(0)}>
-          Treino
-        </button>
-        <button type="button" className={tab === 1 ? "on" : ""} onClick={() => setTab(1)}>
-          Ciclo
-        </button>
-        <button type="button" className={tab === 2 ? "on" : ""} onClick={() => setTab(2)}>
-          Progresso
-        </button>
-      </nav>
+      <Box component="main" sx={{ pb: 10 }}>
+        <Box sx={{ maxWidth: 560, mx: "auto", px: 2, pt: 2 }}>
+          {tab === 0 ? renderTreino() : tab === 1 ? renderCiclo() : renderProgresso()}
+        </Box>
+      </Box>
 
-    </>
+      <Box
+        component="nav"
+        sx={{
+          position: "fixed",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 10,
+          backgroundColor: "background.paper",
+          borderTop: 1,
+          borderColor: "divider",
+        }}
+      >
+        <Tabs value={tab} onChange={(_, nextTab) => setTab(nextTab)} variant="fullWidth">
+          <Tab label="Treino" />
+          <Tab label="Ciclo" />
+          <Tab label="Progresso" />
+        </Tabs>
+      </Box>
+    </ThemeProvider>
   );
 }

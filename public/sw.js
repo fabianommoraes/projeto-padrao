@@ -1,11 +1,20 @@
-const CACHE_NAME = "meu-treino-v2";
+const CACHE_NAME = "meu-treino-v3";
 const APP_SHELL = [
   "/",
   "/manifest.webmanifest",
   "/icon.svg",
 ];
 
+const isLocalhost = () => {
+  const { hostname } = self.location;
+  return hostname === "localhost" || hostname === "127.0.0.1";
+};
+
 self.addEventListener("install", (event) => {
+  if (isLocalhost()) {
+    return self.skipWaiting();
+  }
+
   event.waitUntil(
     caches
       .open(CACHE_NAME)
@@ -15,6 +24,10 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
+  if (isLocalhost()) {
+    return event.waitUntil(self.clients.claim());
+  }
+
   event.waitUntil(
     caches
       .keys()
@@ -30,6 +43,10 @@ self.addEventListener("message", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
+  if (isLocalhost()) {
+    return;
+  }
+
   if (event.request.method !== "GET") {
     return;
   }
@@ -39,19 +56,28 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) {
-        return cached;
-      }
-
-      return fetch(event.request)
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      fetch(event.request)
         .then((response) => {
           const copy = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
           return response;
         })
-        .catch(() => caches.match("/"));
-    })
+        .catch(() => caches.match(event.request).then((cached) => cached || caches.match("/")))
+    );
+    return;
+  }
+
+  event.respondWith(
+    fetch(event.request)
+      .then((response) => {
+        if (response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        }
+        return response;
+      })
+      .catch(() => caches.match(event.request) || caches.match("/"))
   );
 });
